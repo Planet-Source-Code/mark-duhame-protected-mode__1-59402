@@ -1,0 +1,396 @@
+Programming VXD’s using Assembler
+Okay, so the topic looks daunting, but it isn’t really. The supposed complexity and aura of mystery around VxD’s have been scaring off potential users for many years now. In actuality, writing VxD’s is simpler than writing C code under Windows! That seems improbable, but read this tutorial and you’ll see that we’re not exaggerating. So, without much ado, lets jump right in.
+Let’s check out the first program...
+A Complete Listing
+It's pretty simple to list out all the VxDs loaded into memory on your system, but before we start we'll bone up on some theory first.
+When Windows’95 boots, the first VxD it loads into memory is vmm.vxd at memory location 0xC0000000. When a VxD is loaded into memory, it puts some data about itself in a structure that looks like DDB (the Device Data Block). This structure contain information like the name of the VxD, it’s major and minor version numbers and so on. The most important piece of data this structure contains is the location of the next VxD in memory. It's a bit like a link-list or a chain, with each VxD pointing to the other in line. This structure also means that VxD’s can be given a specific order in memory. So if we know the address of the first VxD in memory we can locate the rest of the VxDs as well.
+This next program lists out all the VxDs currently loaded in memory. 
+To compile, simply create a workspace for a console application and proceed. We’ve used Microsoft’s Visual C++ 5.0 for all our programming needs.
+#include <stdio.h>
+struct DDB
+{
+	unsigned long next;
+	unsigned short ver;
+	unsigned short no;
+	unsigned char Mver;
+	unsigned char minorver;
+	unsigned short flags;
+	unsigned char name[8];
+	unsigned long Init;
+	unsigned long ControlProc;
+	unsigned long v86_proc;
+	unsigned long Pm_Proc;
+	void (*v86)();
+	void (*PM)();
+	unsigned long data;
+	unsigned long service_size;
+	unsigned long win32_ptr;
+};
+void abc(char *s)
+{
+FILE *fp;
+fp=fopen("VxD.txt","a+");
+fprintf(fp,"%s\n",s);
+fclose(fp);
+}
+ 
+char n[9],aa[100];
+int main()
+{
+	struct DDB *v;
+	char *s=0xC0000000L+0x1000L;
+ 
+	while (strncmp(s,"VMM    ",8))
+	s++;
+	v=s-12;
+	while(v)
+	{
+		strncpy(n,v->name,8);
+		n[8]='\0';
+		sprintf(aa,"Name %s...",n);
+		abc(aa);
+		sprintf(aa,"Number %d...",v->no);
+		abc(aa);
+		sprintf(aa,"Size..%ld...\n",v->service_size);
+		abc(aa);
+		abc("---");
+		v=v->next;
+	}
+}
+Run this program and you'll see all the VxD's loaded in memory along with their number and service size.
+Let's check out the details of the program. We first create a pointer and initialize it to the memory address of VMM.VXD ( which has been given above). The pointer now points to VMM.VXD. In the structure DDB, 12 bytes from the start, the name of the VXD is stored. So what we do in the while() loop in make sure that the our pointer is really pointing to VMM.VXD. Strncmp() uses a space padded string, as the name of a VxD is always 8 bytes long. If the name is less than 8 bytes then it’s padded with spaces.
+Next we initialize the pointer v (which is a pointer to a DDB) to point to our first VxD. As you can see, we subtract 12 from s (which currently points to the VxD name in the DDB) to make sure v points to the first byte in the DDB of vmm.vxd.
+What follows next is a loop to print information about all the VxDs currently loaded. The last statement of the loop is crucial because it makes v point to the memory location of the next VxD. 
+Notice that the ID of vmm.vxd is always one. That's just another way to recognize it.
+What you need...
+You’ll need a couple of things before you can start on VxD’s.
+1. Get the Device Driver Kit from Microsoft and install it. It provides some crucial .inc files. 
+2. Get MASM ver 6.11 (now known as ml.exe). We got it off the MSDN CD-ROM. I honestly don’t know where you’re going to get it from.
+3. Get SoftIce for Windows95. It’s not completely necessary, but it’s loads of fun and quite useful too. A shareware version is available. Also try and get the SoftIce manuals. They’re available as .pdf files called si30ug.pdf and si30cr.pdf.
+We’re going to be writing the programs one step at a time. At times, the program may not work, it may not even compile, but it will teach you something. So be patient and follow us step by step as be delve deep into the world of VxD’s.
+a.asm
+ 
+.386p
+END
+a.def 
+ 
+VXD zed
+SEGMENTS
+_LDATA CLASS`LCODE’PRELOAD NONDISCARABLE
+EXPORTS
+	zed@1
+This is about a simple as things can get. The .asm file contains just two lines, both of which are essential.
+The very first line of the program is
+.386p
+Whenever a line starts with a dot/period, it signifies that the stuff that follows is a directive to the assembler. It won’t directly generate code, but it may help the assembler assembler better. In this case .386p means that we intend to use the instructions recognized by the Intel 80386. To understand the reason behind this specification of ours, we have to delve into a little bit of history.
+The first of the popular Intel chips was the now famous 8086. After that came the 80186, the 80286 etc. Each of these chips was an improvement (?) on it’s predecessor. Each came with enhanced set of instructions, yet each was backward compatible. That means that the 80386 can understand and run programs written for the 8086 to the 80386. A 8086 chip will choke if presented with a program written exclusively for the 80386. Two chips stand out and act as boundary markers between the various chip types Intel has produced. The 8086 was the first commercial success and if you’re compatible with it, then you code will run on any machine in the ix86 line. MS-DOS for example will run on almost any machine with an Intel chip inside it. The 80386 was a major step up as far as chip design went. It supported multitasking, up to 4GB of RAM, paging and various other concepts I’m to tired to list out. Windows95 works only on the 386 and above. 
+So by specifying the chip we’re aiming to write code for we tell the assembler to be ready for some 80386 specific code. 
+The second line just has the word
+END
+on it and it tells the assembler that this is the end of the program.
+To assemble the VxD type 
+ml -c -DMASM6 a.asm
+ml.exe is the Microsoft assembler. The switch -c tells the assembler to only assemble and not to link. -DMASM6 tells the assembler to act like MASM ver 6. Remember to set the include environment variable to \ddk\inc32. To do that type set include=c:\ddk\inc32;%include%
+then type 
+link -vxd a.obj -def:a.def
+The def file is an interesting concept. When Windows loads a file into memory it needs to know where the different portions or sections of a file are. An executable file is usually subdivided into three sections. There’s the section called .TEXT for code. Another one called .DATA for - you guessed it - data and another one called .RSRC for resources. The .def file defines the contents of the .RSRC portion of the .VxD. We won’t discuss it’s contents just yet. We’ll tear the .def file apart a little later.
+Once you’re through assembling and linking you’ll notice that while the assembly process gave you no problems, while linking you get a lot of warnings and errors, which look like this.
+a.obj : warning LNK4033: converting object format from OMF to COFF
+a.obj : warning LNK4033: converting object format from OMF to COFF
+LINK : warning LNK4039: section "LCODE_vxdpn" specified with /SECTION option doe
+s not exist
+LINK : error LNK2001: unresolved external symbol zed
+zed.VXD : fatal error LNK1120: 1 unresolved externals
+The reason you get a fatal error while linking is because although your .def file refers to the variable zed, your .asm file has no mention of it. So lets add the following line and see what we get.
+a1.asm
+.386p
+public zed
+END
+The line public zed informs the assembler that the variable zed (currently undefined) will be public and thus accessible to all and sundry. Assemble and link the program as before and you immediately get an assembler error.
+a1.asm(2) : error A2006: undefined symbol : zed
+Although we’ve declared the variable zed, we haven’t defined it yet. So lets do that next.
+a2.asm
+.386p
+public zed
+zed VxD_Desc_Block <,,,,,,"zed",,OFFSET FLAT:yyy,,,,,,,>
+END
+Assembler error:
+a2.asm(3) : error A2008: syntax error : zed
+a2.asm(2) : error A2006: undefined symbol : zed
+When we do we’re told it’s a syntax error! What we’ve done here is specify that the variable zed looks like the structure VxD_Desc_Block. Now structures in assembler are not very different from structures in C. In assembler you can initialise the structure with default values and the various empty commas in the definition above tell the assembler to use the default values provided. The <>‘s start off and end the initialisation part of the structure tag. It’s simply tedious syntax. We’ve overridden two defaults; ‘zed’ is the name of our VxD and OFFSET FLAT:yyy tells the assembler to place the offset of the procedure yyy (It’s not yet there in the code, we’ll get to it presently) there in the structure.
+a3.asm
+.386p
+include vmm.inc
+public zed
+zed VxD_Desc_Block<,,,,,,"zed",,OFFSET FLAT:yyy,,,,,,,>
+END
+The structure VxD_Desc_Block is found in the include file vmm.inc. Not including that file in the program may be the source of the error. The include statement should be familiar to any C/C++ programmer. All we’re telling to assembler to do is pick up all the stuff in vmm.inc and be prepared to use it in this program. It’s just like saying #include <vmm.h> in C/C++.
+The output the assembler gives us is:
+a3.asm(4) : error A2034: must be in segment block
+a3.asm(3) : error A2006: undefined symbol : zed
+Nope, it looks like we’re not there yet!
+a4.asm
+.386p
+include vmm.inc
+_LDATA SEGMENT
+public zed
+zed VxD_Desc_Block<,,,,,,"zed",,OFFSET FLAT:yyy,,,,,,,>
+_LDATA ENDS
+END
+Eyeball this for a while. Remember we told you about the various sections an executable file is cut up into? Well, we’ve got to tell the assembler what we want placed in which section.
+Remember the error,"must be in segment block"? Well this cures it. But we’re still left with another error.
+A4.asm(5) : error A2006:umdefined symbol : yyy
+a5.asm
+ 
+.386p
+include vmm.inc
+_LDATA SEGMENT
+public zed
+zed VxD_Desc_Block<,,,,,,"zed",,OFFSET FLAT:yyy,,,,,,,>
+_LDATA ENDS
+yyy proc near
+ret
+yyy endp
+END
+The assembler wanted a function, so we’ve given it one. The line
+yyy proc near
+declares the start of a procedure or function. A little earlier we stored the address of this procedure in the structure VxD_Desc_Block. This is the function that will be called whenever the outside world wishes to communicate with our VxD. If this were Windows C-SDK programming, I’d call this function the callback. Right now the function doesn’t contain much.
+ret
+The ret in the middle is an essential component of any sane procedure as it returns control back to the calling function. The line 
+yyy endp
+defines the end of the procedure.
+Lets assemble the program and see what we get.
+a5.asm(7) : error A2034: must be in segment block : yyy
+a5.asm(8) : error A2034: must be in segment block
+a5.asm(9) : fatal error A1010: unmatched block nesting : yyy
+Each of the new lines contributed one error each! Lets see if we can’t get rid of ‘em.
+a6.asm
+.386p
+include vmm.inc
+_LDATA SEGMENT
+public zed
+zed VxD_Desc_Block<,,,,,,"zed",,OFFSET FLAT:yyy,,,,,,,>
+_LDATA ENDS
+_LTEXT SEGMENT FLAT
+yyy proc near
+ret
+yyy endp
+_LTEXT ENDS
+END
+One look at the program and I bet you guessed what the problem was. All we had to do was add the appropriate segment boundaries. So now we’ve safely positioned yyy in the code segment.
+Assemble and link and all you’ll get are three tame warnings from the linker
+a6.obj : warning LNK4033: converting object format from OMF to COFF
+a6.obj : warning LNK4033: converting object format from OMF to COFF
+Now lets install this static VxD or ours.
+To Install the VxD first edit the file system.ini found in the windows subdirectory. Go to the section called [386Enh] and append this line to the end of the list.
+device=zed.vxd
+Now copy the VxD to the \windows\system subdirectory and reboot your computer. That’s it. Your VxD is installed. Reboot the computer to have Windows load it into memory.
+You might be wondering why the VxD is named zed.vxd rather than the more conventional a6.vxd. That’s because in the .def file you’ve specified the name of the VxD as zed by saying VXD ZED.
+While your computer was rebooting it probably displayed this rather scary message, courtesy Microsoft:
+A device file that is specified in the SYSTEM.INI file is damaged. It may be needed to run Windows.
+You may need to run the Windows Setup program again
+If the file is included in another software package, you may need to reinstall the software that uses the file. 
+C:\Windows\System\Zed.vxd
+Press any key to continue...
+Don’t worry, there’s no problem with your system, neither is the VxD file ‘damaged’; it’s our programming that’s at fault.
+Assemble and Link this program
+a7.asm
+.386p
+include vmm.inc
+_LDATA SEGMENT
+public zed
+zed VxD_Desc_Block<,,,,,,"zed",,OFFSET FLAT:yyy,,,,,,,>
+_LDATA ENDS
+_LTEXT SEGMENT FLAT
+yyy proc near
+clc
+ret
+yyy endp
+_LTEXT ENDS
+END
+It’s the little clc in yyy that makes all the difference. It seems that Microsoft retained the same programming team it used for MS-DOS and had them work on VxD’s. Under DOS, while using INT 13h, a raised Carry Flag (a one bit field in the Flags register) signalled an error. In the same way, if the Carry Flag is set to 1 (i.e. raised) by a VxD it implies that something is wrong. By placing a clc (Clear Carry Flag) instruction before the ret we make sure that the Carry Flag is off when we return. Remove this line and you get the scary message. If you’re lucky, the Carry Flag will already be set to one before you by someone else, but if it’s not, then you system will wait for you to press a key and then continue.
+Try this program now and I guarantee you no errors. Just remember to copy the VxD to C:\Windows\System before rebooting.
+However, how are you to know your VxD is loaded in memory and doing something? Since your VxD doesn’t do anything, nothing happens. There is no change in the systems appearance. There is one nice way to see what happens to your VxD, however only those with SoftIce can use it. Add the line 
+int 3
+to the procedure yyy in a7.asm just before the clc and reassemble. copy the VxD to c:\windows\system. Don’t Reboot. Instead fire up edit and open up the file winice.dat. Go to the line 
+INIT="X;"
+and make it 
+INIT="i3here on;X;"
+This tells SoftIce to trap Interrupt number 3. Now reboot your machine.
+The SoftIce screen will pop-up and say that someone (that’s you) called interrupt 3. This means that your VxD was called since only it contains a call to int 3. Type ‘wr’ in the command window to see the registers. See the state of the EAX register. Now the EAX register has a very special place in VxD programming. In Windows programming, whenever your callback was called, the second number on the stack (the message number) told it why it was being called. In the same way, whenever yyy in your VxD is called the register EAX contains the message number which tells you why you were called. The values in the other registers give you additional, peripheral information which changes depending on the value in EAX.
+While booting up, your VxD will be called constantly and the number in EAX will tell you why. Note down the numbers and look up their #defines (or rather equ statements) in vmm.inc. When you finally get tired of the exercise, type 
+i3here off
+in the SoftIce command window and exit gracefully. 
+One issue we’ve left hanging all this time is the .def file. Well, we’ll tackle it now.
+VXD zed
+SEGMENTS
+_LDATA CLASS 'LCODE' PRELOAD NONDISCARDABLE
+EXPORTS
+zed @1
+The first line of the .def file gives the VxD it’s name. This name will override the name of the .asm file. If we’d put here VXD HAHA, our VxD would be named haha.vxd. This line isn’t really necessary, but what the heck....
+Segments tells the linker that our VxD is divided into segments. The line after that is very important. The segment _LDATA contains the declaration and definition of the structure zed. This structure is very important because it contains the address of the function yyy. This information must loaded before the entire VxD is loaded into memory so after ‘LCODE’ we have the word PRELOAD and since we don’t want this structure overwritten, we say NONDISCARDABLE after that.
+The second last line is EXPORTS and then zed @1. Here’re we’re telling anyone who wants to know that our VxD has one exportable element, the structure zed. The @1 gives our structure a number with which to identify it. It doesn’t really matter if you remove the @ sign and the number after the label zed.
+Calling functions from a .C file
+b.asm
+.386p
+include vmm.inc
+_LDATA SEGMENT
+PUBLIC zed
+zed VxD_Desc_Block<,,,,,,"zed",,OFFSET FLAT:yyy,,,,,,,>
+_LDATA ENDS
+_LTEXT SEGMENT FLAT
+yyy proc near
+cmp eax,Init_Complete
+jnz a1
+call _kiddy
+externdef _kiddy:near
+a1:
+clc
+ret
+yyy endp
+_LTEXT ENDS
+end
+b1.c
+void kiddy()
+{
+_asm int 3
+}
+b.def
+VXD zed
+SEGMENTS
+_LDATA CLASS 'LCODE' PRELOAD NONDISCARDABLE
+EXPORTS
+zed @1
+Eyeball b1.c first. All this .c file contains is a function kiddy() which uses the _asm keyword to call Int 3. It doesn’t return anything. 
+Now comes b.asm which is a simple little program that demonstrates calling a function defined in a .c file from a VxD. The only differences between this program and the earlier one can be found in the procedure yyy.
+You’ve already seen that while booting, our VxD (and all the others) are constantly called and each time there’s a new value in the EAX register. This value tells us why we’ve been called and what’s going on. Here we’re comparing the value stored in EAX with the macro Init_Complete. This macro stands for the number 2 and is only sent when all the VxD’s have been initialised (Initialisation_Complete) and are ready to be used. 
+The cmp instruction subtracts the value on the right of the comma from the one on the left and sets the flags accordingly. No change is made to the actual registers or variables being compared, only the flags change, enabling us to use conditional jump instructions (IF THEN instructions in assembler) after a cmp.
+The jnz is just one of a score of conditional jump instructions. It stands for Jump if Not Zero. So if EAX is not equal to Init_Complete (i.e. EAX - Init_Complete != 0), then control goes to the label a1. A label is just a handy marker which helps us tag a certain block of code for easy reference. By jumping to a1, we bypass all the code in the middle and go straight to the line after the label. It’s our old clc and ret. So what this means is that if EAX is not equal to Init_Complete, then return control back to Windows.
+If however, Windows is through with everything and it calls our VxD with EAX set to 2, then instead of going to a1, we continue with the main body of code.
+Right after the conditional jump, we have a call instruction. Call is used to invoke a function (procedure or method or whatever you want to call it). It pushes the address of the next instruction onto the stack and then jumps to the procedure mentioned. Here it’ll call kiddy in b1.c. The reason we’re calling _kiddy instead of just kiddy is because the compiler places an underscore before every function internally. So the function is no longer called kiddy; it’s now called _kiddy.
+After that we have a directive called externdef which tells the assembler that one or more variables, symbols, data structures, or labels are defined in other files or modules. Here we’re telling the assembler that _kiddy is defined in a file which will be linked in with our own.
+After calling the Interrupt, we call clc and ret and return to Windows.
+The procedure for compilation has changed a bit. Since we’ll be using the Visual C++ compiler, be sure to set the path to all the appropriate \bin directories. Also set the include variable to the correct \include directories and the lib variable to the appropriate \lib ones. You could use the .bat file vcvars32.bat in \vc\bin to do all of this for you automatically. 
+After calling the assembler, call the compiler like this.
+cl -c b1.c
+and then link like this.
+link b.obj b1.obj -def:b.def -vxd
+That’s about it.
+Calling Services from a VxD
+c.asm
+.386p
+include vmm.inc
+include shell.inc
+_LDATA SEGMENT
+public zed
+zed VxD_Desc_Block <,,,,,,"zed",,OFFSET FLAT: yyy,,,,,,,>
+s db 'This is a Blue Screen'
+_LDATA ENDS
+_LTEXT SEGMENT FLAT
+yyy proc near
+cmp eax,Init_Complete
+jnz a1
+mov eax,1
+mov ecx,OFFSET32 s 
+mov esi,0
+mov edi,0 
+int 20h
+dd 00170004h
+a1:
+clc
+ret
+yyy endp
+_LTEXT ENDS
+end
+c.def
+VXD zed
+SEGMENTS
+_LDATA CLASS 'LCODE' PRELOAD NONDISCARDABLE
+EXPORTS
+zed @1
+This is our first VxD which does something useful; sort of! If you boot the computer when it’s installed, then a cute little ‘Blue Screen’ (the one that pops up when Windows95 throws an obnoxious error at you) will appear and display a line on the screen. 
+Let’s jump right in.
+The first real change is the new include file (shell.inc) you have to pack in. There’s also a new variable in the data segment which contains the line of text we wish to have displayed. The procedure yyy has been totally revamped and it needs a bit of explaining. 
+After the usual check for Init_Complete and the jump statement, we place four parameters in four different registers. In VxD’s parameters aren’t passed through the stack; instead registers are directly used. The first parameter is 1 and it’s moved into EAX. The mov instruction moves (copies) the value on the right to the register or variable on the left. EAX is supposed to contain a number which sets the look of the screen. Later, try compiling the program with 2 or 3 in EAX for screens that look slightly different. 
+We then place the address of the variable s in ECX. This, as I’ve mentioned before, is our text. ESI and EDI are then set to zero. 
+Now before we proceed to actually calling the service, let’s understand what a VxD service actually is. A VxD service is just a function present in a VxD which can be called by other VxD’s and normal programs. Most .DLL’s in fact, end up calling a VxD service some time or another in the interests of speed. These services are well documented and as C programming is just a bunch of function calls indispersed with variables, so also VxD programming is usually just a bunch of VxD service calls and lots of variables in-between.
+After we set all the registers, we call the VxD service. To do that we first call Interrupt number 20 which is used to call VxD services. Int 20 examines the line after itself, which in this case holds a number, or rather, two numbers. 0017 is the number of the VxD in memory and 0004 is the number of the service in the VxD. The dd just before the numbers tells the assembler to place these numbers into the code right here and without any changes. 
+And that it! The service is called, it examines the registers and finds what it needs and does what it’s supposed to do. Just like a function. After the service finishes with its work it returns control back to our program. The next two lines are clc and ret and so we quietly return control back to Windows.
+Of course, there is an easier way and it’s called VxDcall. VxDcall is a macro which automatically does all the Int 20 stuff, shielding us from the ugly details and instead of hard to remember numbers, we can use the service names (also macros). So instead of 
+Int 20
+dd 00170004h
+we could have had a short and simple 
+VxDcall SHELL_Message
+Use what you wish, it’s your choice.
+This VxD can prove to be useful for keeping out those nosey folk who snuff through your machine when you’re not around. A Blue Screen with a message like "Error at 0004:0666 in VxD number 13. Hard Disk Failure." is sure to send them running with their tails between their legs! Besides, this VxD shows you how ‘real’ programmers get these groovy screens to appear when required in their programs. 
+Playing with the Keyboard
+d.asm
+.386p
+include	vmm.inc
+include vkd.inc
+ 
+_LDATA SEGMENT
+aa dd 0
+public zed
+zed VxD_Desc_Block <,,,,,,"zed",,OFFSET FLAT: yyy,,,,,,,>
+_LDATA ENDS
+ 
+_LTEXT SEGMENT
+yyy proc 
+cmp eax, Init_Complete
+jnz a2
+mov eax, @@VKD_Filter_Keyboard_Input 
+mov esi, offset xxx
+int 20h
+dd 000010090h
+mov aa, esi
+a2:
+clc
+ret
+yyy endp
+ 
+xxx proc 
+mov dl, cl
+and dl, 7Fh 
+cmp dl,3ah
+jne a1
+mov cl,1eh
+a1:
+call aa
+clc 
+ret
+xxx endp
+ 
+_LTEXT ENDS
+end
+d.def
+VXD zed
+SEGMENTS
+_LDATA CLASS 'LCODE' PRELOAD NONDISCARDABLE
+EXPORTS
+zed @1
+This is another semi-useful program. Here we’re going to fiddle around with the keyboard and see if we can’t control it. 
+We have to include the file vkd.inc, which we’ve done and we’ve also created a new variable in the data segment called aa. It’s a long (Declare Dword) and it’s used later. The procedure yy has changed completely. 
+After the cmp and jnz which we’ve seen before, we have some new stuff in the main code body. After the conditional jump, we move the value of @@VKD_Filter_Keyboard_Input into the register EAX. We then move the offset of our callback procedure xxx into ESI. Once both these two parameters are set up we call a VxD service which hooks us up to the Keyboard VxD. Now every time a key is pressed on the keypad, we’ll be called first and it’s up to us to call the actual keyboard VxD. This gives us enormous power, which we’ll use in a fun way in this program. 
+After the service is called, it returns the address of the original Keyboard VxD in ESI which we store for later reference in aa. Then it’s clc and ret and of we go!
+Now every time a key is pressed, our callback, xxx will be called. Lets examine it.
+Whenever xxx is called, it means a key was pressed on the pad, so the first thing xxx does when called is move the contents of CL into DL. When xxx is called CL will contain the scan code of the key pressed. The scan is different from the ASCII code for a character. Look up the reference chart present in Visual C++’s help or anywhere else.
+After safely storing the scan code, we AND it with a value. Bitwise ANDing is used to chop off bits of a number. Lets take an example in binary.
+0010 1010
+AND
+0000 1111
+-------------
+0000 1010
+To get a 1 as an answer which ANDing both numbers must be 1. So if we AND with all 1’s we’ll get the original number and if we AND with all 0’s, we just get 0’s. So if I AND with the first four bits set to 0 and the last set to 1, I effectively cut the number into half and get the four left most bits.
+By ANDing DL with 7F (0111 1111) we’re cutting the left most bit off. So for example if the scan code is F1 (1111 0001) we get
+1111 0001
+AND
+0111 1111
+------------
+0111 0001
+The left most bit is set to 0.
+This is done because the scan code will never be larger than 127 and the left most bit is of no use what so ever.
+After cutting the scan code down to size, we compare it with 3a, the scan code for the CAPSLOCK key. If the key pressed is not this target key, we jump to a2, call the original handler and leave. The original handler then takes over, takes the scan code in CL and displays it on the screen.
+However, if DL is equal to 3a, we place 1e, the scan code for an ‘a’ in CL and then call the original handler. The handler examines CL as usual, finds an ‘a’ there and prints it on the screen!
+So each time you press CAPSLOCK, you get an ‘a’ instead!
+Okay, so you get two ‘a’s. How come? Well, the keyboard handler is called both when a key is pressed and when it is released. So you get two alphabets for the price of one.
